@@ -1,5 +1,5 @@
 from aiogram import Router, F
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from aiogram.filters import CommandStart
 from database import get_or_create_user, get_user_transactions
 
@@ -14,6 +14,13 @@ def get_client_keyboard():
         resize_keyboard=True
     )
 
+def get_welcome_inline_keyboard():
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🏛 О нас", callback_data="about_lounge")]
+        ]
+    )
+
 @router.message(CommandStart())
 async def cmd_start(message: Message):
     user = message.from_user
@@ -26,6 +33,27 @@ async def cmd_start(message: Message):
         f"Используйте кнопки ниже для управления вашим балансом:"
     )
     await message.answer(welcome_text, reply_markup=get_client_keyboard(), parse_mode="HTML")
+    
+    # Отправляем инлайн-кнопку "О нас" отдельным сообщением или прикрепляем к приветствию
+    about_prompt = "Узнайте больше о нашем заведении 👇"
+    await message.answer(about_prompt, reply_markup=get_welcome_inline_keyboard())
+
+@router.callback_query(F.data == "about_lounge")
+async def cb_about_lounge(callback: CallbackQuery):
+    await callback.answer()
+    about_text = (
+        f"🌟 <b>Лаунж-бар Galaktika в Жуковском</b> 🌟\n\n"
+        f"Добро пожаловать в наше уютное пространство атмосферного отдыха! 🍸💨\n\n"
+        f"✨ К вашим услугам:\n"
+        f"• Премиальные паровые коктейли (кальяны) с большим выбором табаков\n"
+        f"• Авторский чай, элитный кофе, освежающие лимонады и крафтовые напитки\n"
+        f"• Уютная атмосфера, стильный интерьер и приятная музыка для отдыха с друзьями или второй половинкой\n"
+        f"• PlayStation, настольные игры и трансляции матчей\n\n"
+        f"📍 <b>Адрес:</b> г. Жуковский\n"
+        f"🕒 <b>Режим работы:</b> ежедневно с 12:00 до 02:00 (пт-сб до 04:00)\n\n"
+        f"Ждем вас в гости! 🖤"
+    )
+    await callback.message.answer(about_text, parse_mode="HTML")
 
 @router.message(F.text == "💳 Мой баланс")
 async def show_balance(message: Message):
