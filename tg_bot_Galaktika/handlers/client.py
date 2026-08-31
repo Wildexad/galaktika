@@ -1,4 +1,6 @@
 from aiogram import Router, F
+import os
+
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from aiogram.filters import CommandStart
 from database import get_or_create_user, get_user_transactions
@@ -9,10 +11,18 @@ def get_client_keyboard():
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="💳 Мой баланс"), KeyboardButton(text="📜 История баллов")],
-            [KeyboardButton(text="🆔 Мой ID"), KeyboardButton(text="ℹ️ О баллах")]
+            [KeyboardButton(text="🆔 Мой ID"), KeyboardButton(text="ℹ️ О баллах")],
+            [KeyboardButton(text="📅 Забронировать")]
         ],
         resize_keyboard=True
     )
+
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.context import FSMContext
+from handlers.admin import get_admin_ids
+
+class BookingStates(StatesGroup):
+    waiting_for_details = State()
 
 def get_welcome_inline_keyboard():
     return InlineKeyboardMarkup(
@@ -94,6 +104,107 @@ async def show_history(message: Message):
     await message.answer(text, reply_markup=get_client_keyboard(), parse_mode="HTML")
 
 @router.message(F.text == "ℹ️ О баллах")
+@router.message(F.text == "📅 Забронировать")
+async def start_booking(message: Message, state: FSMContext):
+    await state.set_state(BookingStates.waiting_for_details)
+    text = (
+        f"📅 <b>Бронирование столика</b>\n\n"
+        f"Пожалуйста, напишите детали брони одним сообщением:\n"
+        f"• Дата и время\n"
+        f"• Количество человек\n"
+        f"• Ваше имя и контактный телефон\n\n"
+        f"Пример записи:\n01.01.2025 16:05 \n3 \nАндрей \n+7(987)654-32-10\n\n"
+        f"<i>(Или отправьте слово 'отмена' для выхода)</i>"
+    )
+    await message.answer(text, reply_markup=get_client_keyboard(), parse_mode="HTML")
+
+@router.message(BookingStates.waiting_for_details)
+async def process_booking_details(message: Message, state: FSMContext):
+    if message.text and message.text.strip().lower() in ["отмена", "cancel", "/cancel"]:
+        await state.clear()
+        await message.answer("❌ Бронирование отменено.", reply_markup=get_client_keyboard())
+        return
+
+    details = message.text
+    if not details:
+        await message.answer("⚠️ Пожалуйста, отправьте текстовое описание брони.")
+        return
+
+    await state.clear()
+    user = message.from_user
+    username_str = f"@{user.username}" if user.username else "нет username"
+    
+    admin_text = (
+        f"🔔 <b>Новая заявка на бронирование!</b>\n\n"
+        f"👤 <b>Клиент:</b> {user.full_name} ({username_str})\n"
+        f"🆔 ID: <code>{user.id}</code>\n\n"
+        f"📝 <b>Детали:</b>\n{details}"
+    )
+
+    admin_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"book_yes_{user.id}"),
+            InlineKeyboardButton(text="❌ Отклонить", callback_data=f"book_no_{user.id}")
+        ]
+    ])
+
+    admins = get_admin_ids()
+    if not admins:
+        await message.answer("⚠️ В настоящий момент администраторы не настроены в системе. Пожалуйста, позвоните нам напрямую.", reply_markup=get_client_keyboard())
+        return
+
+    sent_count = 0
+    for admin_id in admins:
+        try:
+            await message.bot.send_message(admin_id, admin_text, reply_markup=admin_kb, parse_mode="HTML")
+            sent_count += 1
+        except Exception:
+            pass
+
+    if sent_count > 0:
+        await message.answer("✅ Ваша заявка на бронирование успешно отправлена администраторам! Ожидайте подтверждения.", reply_markup=get_client_keyboard())
+    else:
+        await message.answer("❌ Не удалось отправить заявку администраторам. Пожалуйста, свяжитесь с нами по телефону +7 (999) 000-00-00.", reply_markup=get_client_keyboard())
+
+@router.callback_query(F.data.startswith("book_"))
+async def cb_booking_decision(callback: CallbackQuery):
+    parts = callback.data.split("_")
+    if len(parts) < 3:
+        await callback.answer("Ошибка данных", show_alert=True)
+        return
+    
+    action = parts[1] # yes or no
+    client_id = int(parts[2])
+    
+    admins = get_admin_ids()
+    if callback.from_user.id not in admins:
+        await callback.answer("⛔ У вас нет прав администратора.", show_alert=True)
+        return
+
+    await callback.answer()
+
+    if action == "yes":
+        try:
+            await callback.bot.send_message(
+                client_id, 
+                "🎉 <b>Ваша бронь подтверждена администратором!</b> Ждем вас в нашем лаунж-баре! 🍸",
+                parse_mode="HTML"
+            )
+            await callback.message.edit_text(callback.message.text + "\n\n<b>✅ Статус: БРОНЬ ПОДТВЕРЖДЕНА</b>", parse_mode="HTML")
+        except Exception:
+            await callback.message.answer("⚠️ Не удалось отправить уведомление клиенту (возможно, он заблокировал бота).")
+    else:
+        phone_contact = os.getenv("CONTACT_PHONE", "+7 (999) 000-00-00")
+        try:
+            await callback.bot.send_message(
+                client_id, 
+                f"❌ К сожалению, забронировать столик на выбранное время не удалось.\n\n📞 Пожалуйста, свяжитесь с нами для уточнения деталей по телефону: <b>{phone_contact}</b>",
+                parse_mode="HTML"
+            )
+            await callback.message.edit_text(callback.message.text + "\n\n<b>❌ Статус: БРОНЬ ОТКЛОНЕНА</b>", parse_mode="HTML")
+        except Exception:
+            await callback.message.answer("⚠️ Не удалось отправить уведомление клиенту.")
+
 async def show_about(message: Message):
     text = (
         f"ℹ️ <b>О нашей программе лояльности:</b>\n\n"
