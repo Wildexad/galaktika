@@ -1,8 +1,12 @@
-from aiogram import Router, F
+import io
 import os
-
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-from aiogram.filters import CommandStart
+import qrcode
+from aiogram import Router, F
+from aiogram.types import (
+    Message, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, 
+    InlineKeyboardButton, CallbackQuery, BufferedInputFile
+)
+from aiogram.filters import CommandStart, CommandObject
 from database import get_or_create_user, get_user_transactions, update_user_activity
 
 router = Router()
@@ -32,10 +36,22 @@ def get_welcome_inline_keyboard():
     )
 
 @router.message(CommandStart())
-async def cmd_start(message: Message):
+async def cmd_start(message: Message, command: CommandObject = None):
     user = message.from_user
     await get_or_create_user(user.id, user.username or "", user.full_name or "")
     
+    # Check if this start was triggered by QR Code scan: /start user_123456789
+    if command and command.args and command.args.startswith("user_"):
+        try:
+            target_user_id = int(command.args.split("_")[1])
+            admins = get_admin_ids()
+            if user.id in admins:
+                from handlers.admin import show_client_card_for_admin
+                await show_client_card_for_admin(message, target_user_id)
+                return
+        except Exception:
+            pass
+
     welcome_text = (
         f"👋 Здравствуйте, <b>{user.full_name}</b>!\n\n"
         f"Добро пожаловать в нашу бонусную программу лояльности! 🍸☕️\n\n"
@@ -44,7 +60,6 @@ async def cmd_start(message: Message):
     )
     await message.answer(welcome_text, reply_markup=get_client_keyboard(), parse_mode="HTML")
     
-    # Отправляем инлайн-кнопку "О нас" отдельным сообщением или прикрепляем к приветствию
     about_prompt = "Узнайте больше о нашем заведении 👇"
     await message.answer(about_prompt, reply_markup=get_welcome_inline_keyboard())
 
@@ -80,14 +95,35 @@ async def show_balance(message: Message):
 @router.message(F.text == "🆔 Мой ID")
 async def show_my_id(message: Message):
     user = message.from_user
-    text = (
-        f"🆔 <b>Ваши данные для кассира:</b>\n\n"
-        f"ID: <code>{user.id}</code>\n"
-        f"Имя: {user.full_name}\n"
-        f"@{user.username if user.username else 'отсутствует'}\n\n"
-        f"<i>Сообщите этот ID кассиру при покупке.</i>"
+    bot_info = await message.bot.get_me()
+    qr_data = f"https://t.me/{bot_info.username}?start=user_{user.id}"
+    
+    # Dynamic QR code generation in PNG format
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_M,
+        box_size=10,
+        border=3,
     )
-    await message.answer(text, parse_mode="HTML")
+    qr.add_data(qr_data)
+    qr.make(fit=True)
+    
+    img = qr.make_image(fill_color="black", back_color="white")
+    bio = io.BytesIO()
+    img.save(bio, "PNG")
+    bio.seek(0)
+    
+    photo = BufferedInputFile(bio.getvalue(), filename=f"qr_{user.id}.png")
+    
+    text = (
+        f"🆔 <b>Ваша карта лояльности:</b>\n\n"
+        f"👤 <b>Имя:</b> {user.full_name}\n"
+        f"🆔 <b>ID:</b> <code>{user.id}</code>\n"
+        f"💬 <b>Telegram:</b> @{user.username if user.username else 'отсутствует'}\n\n"
+        f"📱 <i>Покажите этот QR-код кассиру для быстрого начисления или списания баллов!</i>"
+    )
+    await message.answer_photo(photo=photo, caption=text, reply_markup=get_client_keyboard(), parse_mode="HTML")
+
 
 @router.message(F.text == "📜 История баллов")
 async def show_history(message: Message):

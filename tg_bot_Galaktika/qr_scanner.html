@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Сканер QR-кода | Galaktika Lounge</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    body {
+      background-color: #121212;
+      color: #ffffff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+      padding: 20px;
+      box-sizing: border-box;
+      text-align: center;
+    }
+    .card {
+      background: #1e1e1e;
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+      max-width: 320px;
+      width: 100%;
+    }
+    h2 {
+      margin-top: 0;
+      font-size: 20px;
+    }
+    p {
+      color: #aaa;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .btn {
+      background: linear-gradient(135deg, #2AABEE, #229ED9);
+      color: #ffffff;
+      border: none;
+      padding: 14px 28px;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 20px;
+      width: 100%;
+      box-shadow: 0 4px 12px rgba(42, 171, 238, 0.3);
+    }
+    .btn:active {
+      transform: scale(0.98);
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>📷 Сканер QR-кода</h2>
+    <p>Нажмите кнопку ниже, чтобы открыть камеру Telegram и отсканировать QR-код клиента.</p>
+    <button class="btn" onclick="startScan()">Открыть камеру</button>
+  </div>
+
+  <script>
+    const tg = window.Telegram ? window.Telegram.WebApp : null;
+
+    if (tg) {
+      tg.ready();
+      tg.expand();
+    }
+
+    function startScan() {
+      if (!tg) {
+        alert("Пожалуйста, откройте эту страницу через Telegram.");
+        return;
+      }
+      
+      tg.showScanQrPopup({ text: "Наведите камеру на QR-код клиента" }, function(qrText) {
+        if (!qrText) return false;
+        
+        let userId = null;
+        if (qrText.includes("user_")) {
+          const parts = qrText.split("user_")[1];
+          userId = parts.split("&")[0].split("?")[0].split("/")[0];
+        } else if (/^\d+$/.test(qrText.trim())) {
+          userId = qrText.trim();
+        }
+
+        if (userId && tg.initDataUnsafe?.bot?.username) {
+          tg.openTelegramLink("https://t.me/" + tg.initDataUnsafe.bot.username + "?start=user_" + userId);
+          tg.closeScanQrPopup();
+          tg.close();
+          return true;
+        }
+
+        try {
+          tg.sendData(qrText);
+        } catch(e) {}
+
+        tg.closeScanQrPopup();
+        tg.close();
+        return true;
+      });
+    }
+
+    window.onload = function() {
+      setTimeout(startScan, 300);
+    };
+  </script>
+</body>
+</html>

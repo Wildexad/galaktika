@@ -2,7 +2,7 @@ import os
 import asyncio
 from dotenv import load_dotenv
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from aiogram.filters import Command, BaseFilter
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
@@ -44,7 +44,12 @@ class AdminStates(StatesGroup):
     waiting_for_broadcast = State()
 
 def get_admin_main_kb():
+    # Hosted Telegram WebApp QR scanner page or fallback custom URL
+    webapp_url = os.getenv("WEBAPP_SCANNER_URL", "https://tg-qr-scanner.vercel.app")
     return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="📷 Сканировать QR", web_app=WebAppInfo(url=webapp_url))
+        ],
         [
             InlineKeyboardButton(text="➕ Начислить", callback_data="adm_add"),
             InlineKeyboardButton(text="➖ Списать", callback_data="adm_sub")
@@ -55,10 +60,41 @@ def get_admin_main_kb():
         ]
     ])
 
+async def show_client_card_for_admin(message: Message, target_user_id: int):
+    user = await get_user_by_id(target_user_id)
+    if not user:
+        await message.answer(f"❌ Клиент с ID <code>{target_user_id}</code> не найден в базе данных.", parse_mode="HTML")
+        return
+    
+    txs = await get_user_transactions(target_user_id, limit=5)
+    tx_text = "\n".join([f"• {'+' if t['amount'] > 0 else ''}{t['amount']} б. — {t['description']} <i>({t['created_at']})</i>" for t in txs]) or "Нет операций"
+    
+    card_text = (
+        f"👤 <b>Карточка клиента:</b>\n\n"
+        f"Имя: <b>{user['full_name']}</b>\n"
+        f"ID: <code>{user['user_id']}</code>\n"
+        f"Telegram: @{user['username'] if user['username'] else 'отсутствует'}\n"
+        f"⭐ <b>Текущий баланс:</b> {user['balance']} баллов\n\n"
+        f"📜 <b>Последние 5 операций:</b>\n{tx_text}"
+    )
+    
+    client_action_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="➕ Начислить", callback_data=f"adm_direct_add_{target_user_id}"),
+            InlineKeyboardButton(text="➖ Списать", callback_data=f"adm_direct_sub_{target_user_id}")
+        ],
+        [
+            InlineKeyboardButton(text="🛠 Главное меню", callback_data="adm_main")
+        ]
+    ])
+    
+    await message.answer(card_text, reply_markup=client_action_kb, parse_mode="HTML")
+
 @router.message(Command("admin"), IsAdmin())
 async def cmd_admin(message: Message, state: FSMContext):
     await state.clear()
     await message.answer("🛠 <b>Панель кассира / администратора:</b>\nВыберите действие:", reply_markup=get_admin_main_kb(), parse_mode="HTML")
+
 
 @router.message(Command("admin"), NotAdmin())
 async def cmd_admin_denied(message: Message):
@@ -88,8 +124,51 @@ async def cb_admin_broadcast_cancel(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text("❌ Рассылка отменена.", reply_markup=get_admin_main_kb())
     await callback.answer()
 
+@router.callback_query(F.data == "adm_main", IsAdmin())
+async def cb_admin_main(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.message.edit_text("🛠 <b>Панель кассира / администратора:</b>\nВыберите действие:", reply_markup=get_admin_main_kb(), parse_mode="HTML")
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("adm_direct_"), IsAdmin())
+async def cb_admin_direct(callback: CallbackQuery, state: FSMContext):
+    parts = callback.data.split("_")
+    if len(parts) < 4:
+        return
+    action = parts[2] # add or sub
+    target_uid = int(parts[3])
+    
+    await state.update_data(action=action, uid=target_uid)
+    await state.set_state(AdminStates.waiting_for_amount)
+    
+    act_title = "начисления" if action == "add" else "списания"
+    await callback.message.answer(
+        f"⭐ Режим <b>{act_title}</b> для клиента <code>{target_uid}</code>.\n\n"
+        f"Введите сумму баллов (например, <code>100</code>):",
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+@router.message(F.web_app_data, IsAdmin())
+async def process_web_app_qr(message: Message):
+    data_str = message.web_app_data.data.strip()
+    target_id = None
+    if "user_" in data_str:
+        try:
+            target_id = int(data_str.split("user_")[1].split("&")[0].split("?")[0])
+        except (ValueError, IndexError):
+            pass
+    elif data_str.isdigit():
+        target_id = int(data_str)
+        
+    if target_id:
+        await show_client_card_for_admin(message, target_id)
+    else:
+        await message.answer(f"⚠️ Не удалось распознать ID клиента из QR-кода: <code>{data_str}</code>", parse_mode="HTML")
+
 @router.callback_query(F.data.startswith("adm_"), IsAdmin())
 async def cb_admin(callback: CallbackQuery, state: FSMContext):
+
     parts = callback.data.split("_")
     if len(parts) < 2:
         return
