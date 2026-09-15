@@ -3,7 +3,7 @@ import os
 
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from aiogram.filters import CommandStart
-from database import get_or_create_user, get_user_transactions
+from database import get_or_create_user, get_user_transactions, update_user_activity
 
 router = Router()
 
@@ -103,7 +103,6 @@ async def show_history(message: Message):
     
     await message.answer(text, reply_markup=get_client_keyboard(), parse_mode="HTML")
 
-@router.message(F.text == "ℹ️ О баллах")
 @router.message(F.text == "📅 Забронировать")
 async def start_booking(message: Message, state: FSMContext):
     await state.set_state(BookingStates.waiting_for_details)
@@ -205,6 +204,7 @@ async def cb_booking_decision(callback: CallbackQuery):
         except Exception:
             await callback.message.answer("⚠️ Не удалось отправить уведомление клиенту.")
 
+@router.message(F.text == "ℹ️ О баллах")
 async def show_about(message: Message):
     text = (
         f"ℹ️ <b>О нашей программе лояльности:</b>\n\n"

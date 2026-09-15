@@ -1,11 +1,12 @@
 import os
+import asyncio
 from dotenv import load_dotenv
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command, BaseFilter
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
-from database import get_user_by_id, update_balance, get_user_transactions
+from database import get_user_by_id, update_balance, get_user_transactions, get_all_users
 
 router = Router()
 
@@ -40,20 +41,24 @@ class AdminStates(StatesGroup):
     waiting_for_user_id = State()
     waiting_for_amount = State()
     waiting_for_description = State()
+    waiting_for_broadcast = State()
 
-@router.message(Command("admin"), IsAdmin())
-async def cmd_admin(message: Message, state: FSMContext):
-    await state.clear()
-    kb = InlineKeyboardMarkup(inline_keyboard=[
+def get_admin_main_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="➕ Начислить", callback_data="adm_add"),
             InlineKeyboardButton(text="➖ Списать", callback_data="adm_sub")
         ],
         [
-            InlineKeyboardButton(text="👤 Проверить баланс", callback_data="adm_info")
+            InlineKeyboardButton(text="👤 Проверить баланс", callback_data="adm_info"),
+            InlineKeyboardButton(text="📢 Рассылка", callback_data="adm_broadcast")
         ]
     ])
-    await message.answer("🛠 <b>Панель кассира:</b>\nВыберите действие:", reply_markup=kb, parse_mode="HTML")
+
+@router.message(Command("admin"), IsAdmin())
+async def cmd_admin(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("🛠 <b>Панель кассира / администратора:</b>\nВыберите действие:", reply_markup=get_admin_main_kb(), parse_mode="HTML")
 
 @router.message(Command("admin"), NotAdmin())
 async def cmd_admin_denied(message: Message):
@@ -62,9 +67,37 @@ async def cmd_admin_denied(message: Message):
     print(f"⚠️ Доступ запрещен для пользователя {user_id}. Список админов в окружении: {admins}")
     await message.answer(f"⛔ У вас нет прав администратора.", parse_mode="HTML")
 
+@router.callback_query(F.data == "adm_broadcast", IsAdmin())
+async def cb_admin_broadcast_start(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(AdminStates.waiting_for_broadcast)
+    cancel_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отменить рассылку", callback_data="adm_cancel_broadcast")]
+    ])
+    await callback.message.edit_text(
+        "📢 <b>Режим рассылки сообщений</b>\n\n"
+        "Отправьте текст или медиа-сообщение (фото, видео, документ), которое увидят ВСЕ зарегистрированные клиенты.\n\n"
+        "<i>Для отмены нажмите кнопку ниже или отправьте слово 'отмена'.</i>",
+        reply_markup=cancel_kb,
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == "adm_cancel_broadcast", IsAdmin())
+async def cb_admin_broadcast_cancel(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.message.edit_text("❌ Рассылка отменена.", reply_markup=get_admin_main_kb())
+    await callback.answer()
+
 @router.callback_query(F.data.startswith("adm_"), IsAdmin())
 async def cb_admin(callback: CallbackQuery, state: FSMContext):
-    action = callback.data.split("_")[1]
+    parts = callback.data.split("_")
+    if len(parts) < 2:
+        return
+    action = parts[1]
+    
+    if action not in ["add", "sub", "info"]:
+        return
+        
     await state.update_data(action=action)
     await state.set_state(AdminStates.waiting_for_user_id)
     
@@ -78,6 +111,50 @@ async def cb_admin(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data.startswith("adm_"), NotAdmin())
 async def cb_admin_denied(callback: CallbackQuery):
     await callback.answer("⛔ Нет прав.", show_alert=True)
+
+@router.message(AdminStates.waiting_for_broadcast, IsAdmin())
+async def state_process_broadcast(message: Message, state: FSMContext):
+    if message.text and message.text.strip().lower() in ["отмена", "cancel", "/cancel"]:
+        await state.clear()
+        await message.answer("❌ Рассылка отменена.", reply_markup=get_admin_main_kb())
+        return
+
+    users = await get_all_users()
+    if not users:
+        await state.clear()
+        await message.answer("⚠️ В базе данных пока нет зарегистрированных клиентов.", reply_markup=get_admin_main_kb())
+        return
+
+    await state.clear()
+    status_msg = await message.answer(f"⏳ Отправка рассылки для <b>{len(users)}</b> пользователей...", parse_mode="HTML")
+
+    success = 0
+    blocked = 0
+    failed = 0
+
+    for user in users:
+        uid = user["user_id"]
+        try:
+            await message.send_copy(chat_id=uid)
+            success += 1
+        except Exception as e:
+            err_str = str(e).lower()
+            if "forbidden" in err_str or "blocked" in err_str or "deactivated" in err_str:
+                blocked += 1
+            else:
+                failed += 1
+        
+        await asyncio.sleep(0.05) # Prevent hitting Telegram rate limit
+
+    report = (
+        f"✅ <b>Рассылка успешно завершена!</b>\n\n"
+        f"📊 <b>Результаты:</b>\n"
+        f"• Доставлено: <b>{success}</b>\n"
+        f"• Заблокировали бота: <b>{blocked}</b>\n"
+        f"• Не удалось отправить: <b>{failed}</b>\n"
+        f"• Всего пользователей: <b>{len(users)}</b>"
+    )
+    await status_msg.edit_text(report, parse_mode="HTML")
 
 @router.message(AdminStates.waiting_for_user_id, IsAdmin())
 async def state_user_id(message: Message, state: FSMContext):
