@@ -199,7 +199,7 @@ async def process_booking_details(message: Message, state: FSMContext):
     if sent_count > 0:
         await message.answer("✅ Ваша заявка на бронирование успешно отправлена администраторам! Ожидайте подтверждения.", reply_markup=get_client_keyboard())
     else:
-        await message.answer("❌ Не удалось отправить заявку администраторам. Пожалуйста, свяжитесь с нами по телефону +7 (999) 000-00-00.", reply_markup=get_client_keyboard())
+        await message.answer("❌ Не удалось отправить заявку администраторам. Пожалуйста, свяжитесь с нами по телефону +7 (903) 295-59-33.", reply_markup=get_client_keyboard())
 
 @router.callback_query(F.data.startswith("book_"))
 async def cb_booking_decision(callback: CallbackQuery):
@@ -229,7 +229,7 @@ async def cb_booking_decision(callback: CallbackQuery):
         except Exception:
             await callback.message.answer("⚠️ Не удалось отправить уведомление клиенту (возможно, он заблокировал бота).")
     else:
-        phone_contact = os.getenv("CONTACT_PHONE", "+7 (999) 000-00-00")
+        phone_contact = os.getenv("CONTACT_PHONE", "+7 (903) 295-59-33")
         try:
             await callback.bot.send_message(
                 client_id, 

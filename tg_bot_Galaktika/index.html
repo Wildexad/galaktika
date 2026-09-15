@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="ru">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -20,6 +21,7 @@
       box-sizing: border-box;
       text-align: center;
     }
+
     .card {
       background: #1e1e1e;
       border-radius: 16px;
@@ -28,8 +30,18 @@
       max-width: 320px;
       width: 100%;
     }
-    h2 { margin-top: 0; font-size: 20px; }
-    p { color: #aaa; font-size: 14px; line-height: 1.5; }
+
+    h2 {
+      margin-top: 0;
+      font-size: 20px;
+    }
+
+    p {
+      color: #aaa;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
     .btn {
       background: linear-gradient(135deg, #2AABEE, #229ED9);
       color: #ffffff;
@@ -43,9 +55,13 @@
       width: 100%;
       box-shadow: 0 4px 12px rgba(42, 171, 238, 0.3);
     }
-    .btn:active { transform: scale(0.98); }
+
+    .btn:active {
+      transform: scale(0.98);
+    }
   </style>
 </head>
+
 <body>
   <div class="card">
     <h2>📷 Сканер QR-кода</h2>
@@ -76,11 +92,11 @@
         if (text.startsWith("https://t.me/") || text.startsWith("http://t.me/")) {
           try {
             tg.openTelegramLink(text);
-          } catch(e) {
+          } catch (e) {
             window.location.href = text;
           }
-          try { tg.closeScanQrPopup(); } catch(e) {}
-          try { tg.close(); } catch(e) {}
+          try { tg.closeScanQrPopup(); } catch (e) { }
+          try { tg.close(); } catch (e) { }
           return true;
         }
 
@@ -96,16 +112,16 @@
           const targetUrl = "https://t.me/for_some_testing_bot?start=user_" + userId;
           try {
             tg.openTelegramLink(targetUrl);
-          } catch(e) {
+          } catch (e) {
             window.location.href = targetUrl;
           }
-          try { tg.closeScanQrPopup(); } catch(e) {}
-          try { tg.close(); } catch(e) {}
+          try { tg.closeScanQrPopup(); } catch (e) { }
+          try { tg.close(); } catch (e) { }
           return true;
         }
 
-        try { tg.closeScanQrPopup(); } catch(e) {}
-        try { tg.close(); } catch(e) {}
+        try { tg.closeScanQrPopup(); } catch (e) { }
+        try { tg.close(); } catch (e) { }
         return true;
       });
     }
@@ -115,4 +131,5 @@
     };
   </script>
 </body>
+
 </html>

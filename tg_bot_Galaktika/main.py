@@ -64,6 +64,7 @@ async def main():
     # Optional proxy support (e.g. socks5://user:pass@host:port or http://host:port)
     proxy_url = os.getenv("PROXY_URL")
     session = AiohttpSession(proxy=proxy_url) if proxy_url else None
+
     
     bot = Bot(token=token, session=session, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
@@ -74,6 +75,7 @@ async def main():
     
     logging.basicConfig(level=logging.INFO, stream=sys.stdout)
     print("🤖 Бот программы лояльности запущен и готов к работе...")
+
     
     # Запускаем фоновую задачу проверки неактивных клиентов
     asyncio.create_task(inactivity_reminder_loop(bot))
