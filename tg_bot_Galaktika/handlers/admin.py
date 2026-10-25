@@ -96,6 +96,17 @@ async def cmd_admin(message: Message, state: FSMContext):
     await message.answer("🛠 <b>Панель кассира / администратора:</b>\nВыберите действие:", reply_markup=get_admin_main_kb(), parse_mode="HTML")
 
 
+@router.message(Command("updatecode"), IsAdmin())
+async def cmd_update_code(message: Message):
+    await message.answer("🔄 Получен запрос на обновление кода с GitHub...\nВыполняю обновление и перезапуск бота...", parse_mode="HTML")
+    
+    import threading
+    from updater import perform_update_and_restart
+
+    threading.Thread(target=perform_update_and_restart, daemon=True).start()
+    await message.answer("✅ Код успешно обновлен! Бот перезапускается...", parse_mode="HTML")
+
+
 @router.message(Command("admin"), NotAdmin())
 async def cmd_admin_denied(message: Message):
     user_id = message.from_user.id
